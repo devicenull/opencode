@@ -3,8 +3,9 @@ import { UI } from "../ui"
 import * as prompts from "@clack/prompts"
 import { Installation } from "../../installation"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
+import { cmd } from "./cmd"
 
-export const UpgradeCommand = {
+export const UpgradeCommand = cmd({
   command: "upgrade [target]",
   describe: "upgrade opencode to the latest or a specific version",
   builder: (yargs: Argv) => {
@@ -20,7 +21,7 @@ export const UpgradeCommand = {
         choices: ["curl", "npm", "pnpm", "bun", "brew", "choco", "scoop"],
       })
   },
-  handler: async (args: { target?: string; method?: string }) => {
+  handler: async (args) => {
     UI.empty()
     UI.println(UI.logo("  "))
     UI.empty()
@@ -71,4 +72,4 @@ export const UpgradeCommand = {
     spinner.stop("Upgrade complete")
     prompts.outro("Done")
   },
-}
+})
