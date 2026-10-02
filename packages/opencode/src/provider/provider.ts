@@ -1246,6 +1246,7 @@ export type Error = ModelNotFoundError | InitError | NoProvidersError | NoModels
 
 export interface Interface {
   readonly list: () => Effect.Effect<Record<ProviderV2.ID, Info>>
+  readonly listCatalog: () => Effect.Effect<Record<ProviderV2.ID, Info>>
   readonly getProvider: (providerID: ProviderV2.ID) => Effect.Effect<Info>
   readonly getModel: (providerID: ProviderV2.ID, modelID: ModelV2.ID) => Effect.Effect<Model, ModelNotFoundError>
   readonly getLanguage: (model: Model) => Effect.Effect<LanguageModelV3, ModelNotFoundError>
@@ -1261,6 +1262,7 @@ interface State {
   models: Map<string, LanguageModelV3>
   providers: Record<ProviderV2.ID, Info>
   catalog: Record<ProviderV2.ID, Info>
+  publicCatalog: Record<ProviderV2.ID, Info>
   sdk: Map<string, BundledSDK>
   modelLoaders: Record<string, CustomModelLoader>
   varsLoaders: Record<string, CustomVarsLoader>
@@ -1459,6 +1461,10 @@ const layer = Layer.effect(
         StartupTiming.mark("provider:models-dev")
         const catalog = mapValues(modelsDev, fromModelsDevProvider)
         const database = mapValues(catalog, toPublicInfo)
+        // Pristine public catalog for the /provider list endpoint; the config and
+        // plugin loops below patch `database`, so snapshot before they run. Mutation
+        // sites must replace entries, not edit them in place, to keep this valid.
+        const publicCatalog = { ...database }
         StartupTiming.mark("provider:catalog-mapped")
 
         const providers: Record<ProviderV2.ID, Info> = {} as Record<ProviderV2.ID, Info>
@@ -1520,19 +1526,22 @@ const layer = Layer.effect(
           if (!provider) continue
           const pluginAuth = yield* auth.get(providerID).pipe(Effect.orDie)
 
-          provider.models = yield* Effect.promise(async () => {
-            const next = await models(toPublicInfo(provider), { auth: pluginAuth })
-            return Object.fromEntries(
-              Object.entries(next).map(([id, model]) => [
-                id,
-                {
-                  ...model,
-                  id: ModelV2.ID.make(id),
-                  providerID,
-                },
-              ]),
-            )
-          })
+          database[providerID] = {
+            ...provider,
+            models: yield* Effect.promise(async () => {
+              const next = await models(toPublicInfo(provider), { auth: pluginAuth })
+              return Object.fromEntries(
+                Object.entries(next).map(([id, model]) => [
+                  id,
+                  {
+                    ...model,
+                    id: ModelV2.ID.make(id),
+                    providerID,
+                  },
+                ]),
+              )
+            }),
+          }
         }
 
         // extend database from config
@@ -1780,6 +1789,7 @@ const layer = Layer.effect(
           models: languages,
           providers,
           catalog,
+          publicCatalog,
           sdk,
           modelLoaders,
           varsLoaders,
@@ -1788,6 +1798,8 @@ const layer = Layer.effect(
     )
 
     const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
+
+    const listCatalog = Effect.fn("Provider.listCatalog")(() => InstanceState.use(state, (s) => s.publicCatalog))
 
     async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
       try {
@@ -2069,7 +2081,7 @@ const layer = Layer.effect(
       }
     })
 
-    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
+    return Service.of({ list, listCatalog, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
   }),
 )
 
