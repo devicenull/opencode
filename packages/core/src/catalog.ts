@@ -168,6 +168,12 @@ const layer = Layer.effect(
         yield* events.publish(Event.Updated, {})
       }),
     })
+    // projectModel runs per model per read; memoize the projected list by
+    // materialized-state identity so repeat reads (e.g. every /api/model
+    // request) skip re-projecting thousands of models. The memoized array is
+    // shared with callers, so it must be treated as read-only.
+    let modelAllMemo: { state: Data; value: ModelV2.Info[] } | undefined
+
     const result: Interface = {
       transform: state.transform,
       reload: state.reload,
@@ -198,13 +204,17 @@ const layer = Layer.effect(
         }),
 
         all: Effect.fn("CatalogV2.model.all")(function* () {
-          return pipe(
-            Array.fromIterable(state.get().providers.values()),
+          const current = state.get()
+          if (modelAllMemo?.state === current) return modelAllMemo.value
+          const value = pipe(
+            Array.fromIterable(current.providers.values()),
             Array.flatMap((record) => {
               return Array.fromIterable(record.models.values()).map((model) => projectModel(model, record.provider))
             }),
             Array.sortWith((item) => item.time.released, Order.flip(Order.Number)),
           )
+          modelAllMemo = { state: current, value }
+          return value
         }),
 
         available: Effect.fn("CatalogV2.model.available")(function* () {
