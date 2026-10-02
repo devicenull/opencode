@@ -86,6 +86,7 @@ import * as TuiAudio from "./audio"
 import { win32DisableProcessedInput, win32FlushInputBuffer } from "./terminal-win32"
 import { destroyRenderer } from "./util/renderer"
 import { cliErrorMessage, errorFormat } from "./util/error"
+import { StartupTiming } from "@opencode-ai/core/util/startup"
 
 registerOpencodeSpinner()
 
@@ -211,6 +212,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
             destroyRenderer(renderer)
           }),
       )
+      StartupTiming.mark("tui:renderer")
       win32DisableProcessedInput()
       const keymap = createDefaultOpenTuiKeymap(renderer)
       yield* Effect.acquireRelease(
@@ -240,6 +242,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
         // Prewarm palette before ThemeProvider mounts so `system` theme avoids a first-paint fallback flash.
         void renderer.getPalette({ size: 16 }).catch(() => undefined)
         const mode = (await renderer.waitForThemeMode(1000)) ?? "dark"
+        StartupTiming.mark("tui:theme-mode")
         if (renderer.isDestroyed) return
 
         await render(() => {
@@ -349,6 +352,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
             </ExitProvider>
           )
         }, renderer)
+        StartupTiming.mark("tui:first-render")
       })
       yield* Deferred.await(shutdown)
       return { epilogue: exit.epilogue, reason: exit.reason }
@@ -387,6 +391,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
   const attention = createTuiAttention({ renderer, config: tuiConfig, kv })
   const clipboard = useClipboard()
 
+  StartupTiming.mark("tui:app-body")
   const api = createTuiApi(
     createTuiApiAdapters({
       version: InstallationVersion,
@@ -407,6 +412,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
     }),
   )
   const [ready, setReady] = createSignal(false)
+  StartupTiming.mark("tui:api-adapters")
   props.pluginHost
     .start({
       api,
@@ -418,6 +424,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
       console.error("Failed to load TUI plugins", error)
     })
     .finally(() => {
+      StartupTiming.mark("tui:plugins")
       setReady(true)
     })
 

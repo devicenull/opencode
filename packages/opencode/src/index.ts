@@ -29,7 +29,9 @@ import { DbCommand } from "./cli/cmd/db"
 import { errorMessage } from "./util/error"
 import { PluginCommand } from "./cli/cmd/plug"
 import { Heap } from "./cli/heap"
+import { StartupTiming } from "@opencode-ai/core/util/startup"
 
+StartupTiming.mark("cli:imports")
 const args = hideBin(process.argv)
 
 function show(out: string) {

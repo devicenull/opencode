@@ -32,6 +32,7 @@ import { batch, onMount } from "solid-js"
 import path from "path"
 import { useKV } from "./kv"
 import { usePermission } from "./permission"
+import { StartupTiming } from "@opencode-ai/core/util/startup"
 
 const emptyConsoleState: ConsoleState = {
   consoleManagedProviders: [],
@@ -449,6 +450,7 @@ export const {
     const args = useArgs()
 
     async function bootstrap(input: { fatal?: boolean } = {}) {
+      StartupTiming.mark("tui:bootstrap-start")
       const fatal = input.fatal ?? true
       const workspace = project.workspace.current()
       const projectPromise = project.sync()
@@ -515,6 +517,7 @@ export const {
           })
         })
         .then(() => {
+          StartupTiming.mark("tui:sync-partial")
           if (store.status !== "complete") setStore("status", "partial")
           // non-blocking
           void Promise.all([
@@ -534,6 +537,7 @@ export const {
             sdk.client.vcs.get({ workspace }).then((x) => setStore("vcs", reconcile(x.data))),
             project.workspace.sync(),
           ]).then(() => {
+            StartupTiming.mark("tui:sync-complete")
             setStore("status", "complete")
           })
         })

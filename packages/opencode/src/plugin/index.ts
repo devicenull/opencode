@@ -29,6 +29,7 @@ import { errorMessage } from "@/util/error"
 import { PluginLoader } from "./loader"
 import { parsePluginSpecifier, readPluginId, readV1Plugin, resolvePluginId } from "./shared"
 import { registerAdapter } from "@/control-plane/adapters"
+import { StartupTiming } from "@opencode-ai/core/util/startup"
 import type { WorkspaceAdapter } from "@/control-plane/types"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -133,6 +134,7 @@ const layer = Layer.effect(
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("Plugin.state")(function* (ctx) {
+        StartupTiming.mark("plugin:state-start")
         const hooks: Hooks[] = []
         const bridge = yield* EffectBridge.make()
 
@@ -150,6 +152,7 @@ const layer = Layer.effect(
           ...(serverUrl ? {} : { fetch: async (...args) => Server.Default().app.fetch(...args) }),
         })
         const cfg = yield* config.get()
+        StartupTiming.mark("plugin:config")
         const input: PluginInput = {
           client,
           project: ctx.project,
@@ -182,6 +185,7 @@ const layer = Layer.effect(
         if (flags.pure && cfg.plugin_origins?.length) {
         }
         if (plugins.length) yield* config.waitForDependencies()
+        StartupTiming.mark("plugin:deps")
 
         const loaded = yield* Effect.promise(() =>
           PluginLoader.loadExternal({
@@ -277,6 +281,7 @@ const layer = Layer.effect(
           ),
         )
 
+        StartupTiming.mark("plugin:state-done")
         return { hooks }
       }),
     )

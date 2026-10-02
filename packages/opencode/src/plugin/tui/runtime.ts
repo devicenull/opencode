@@ -43,6 +43,7 @@ import { createCommandShim } from "@opencode-ai/tui/plugin/command-shim"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Effect } from "effect"
 import { createPluginRuntime, type PluginRuntime, type TuiPluginHost } from "@opencode-ai/tui/plugin/runtime"
+import { StartupTiming } from "@opencode-ai/core/util/startup"
 
 ensureRuntimePluginSupport({ additional: keymapRuntimeModules })
 
@@ -1056,6 +1057,7 @@ async function load(input: {
   disposeTimeoutMs?: number
 }) {
   const { api, config } = input
+  StartupTiming.mark("tui:plugin-load-start")
   const cwd = process.cwd()
   const slots = input.runtime.setupSlots(api)
   const next: RuntimeState = {
@@ -1086,6 +1088,7 @@ async function load(input: {
       }).pipe(Effect.provide(AppNodeBuilder.build(RuntimeFlags.node))),
     )
     const pluginOrigins = config.plugin_origins ?? (await TuiConfig.pluginOrigins())
+    StartupTiming.mark("tui:plugin-origins")
     const records = Flag.OPENCODE_PURE ? [] : pluginOrigins
     if (Flag.OPENCODE_PURE && pluginOrigins.length) {
     }
@@ -1104,6 +1107,7 @@ async function load(input: {
     }
 
     const ready = await resolveExternalPlugins(records, () => TuiConfig.waitForDependencies())
+    StartupTiming.mark("tui:plugins-resolved")
     await addExternalPluginEntries(next, ready)
 
     applyInitialPluginEnabledState(next, config)

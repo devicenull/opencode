@@ -28,6 +28,7 @@ import { optional } from "@opencode-ai/core/schema"
 import { ProviderTransform } from "./transform"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { StartupTiming } from "@opencode-ai/core/util/startup"
 import { ModelStatus } from "./model-status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderError } from "./error"
@@ -1450,11 +1451,15 @@ const layer = Layer.effect(
 
     const state = yield* InstanceState.make<State>(() =>
       Effect.gen(function* () {
+        StartupTiming.mark("provider:state-start")
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
+        StartupTiming.mark("provider:config")
         const modelsDev = yield* modelsDevSvc.get()
+        StartupTiming.mark("provider:models-dev")
         const catalog = mapValues(modelsDev, fromModelsDevProvider)
         const database = mapValues(catalog, toPublicInfo)
+        StartupTiming.mark("provider:catalog-mapped")
 
         const providers: Record<ProviderV2.ID, Info> = {} as Record<ProviderV2.ID, Info>
         const languages = new Map<string, LanguageModelV3>()
@@ -1490,6 +1495,7 @@ const layer = Layer.effect(
 
         // load plugins first so config() hook runs before reading cfg.provider
         const plugins = yield* plugin.list()
+        StartupTiming.mark("provider:plugins-loaded")
 
         // now read config providers - includes any modifications from plugin config() hook
         const configProviders = Object.entries(cfg.provider ?? {})
@@ -1769,6 +1775,7 @@ const layer = Layer.effect(
           }
         }
 
+        StartupTiming.mark("provider:state-done")
         return {
           models: languages,
           providers,

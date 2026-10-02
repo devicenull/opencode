@@ -31,6 +31,7 @@ import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/l
 import { Reference } from "@opencode-ai/core/reference"
 import { Location } from "@opencode-ai/core/location"
 import { PluginV2 } from "@opencode-ai/core/plugin"
+import { StartupTiming } from "@opencode-ai/core/util/startup"
 
 export const Info = Schema.Struct({
   name: Schema.String,
@@ -97,14 +98,18 @@ const layer = Layer.effect(
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("Agent.state")(function* (ctx) {
+        StartupTiming.mark("agent:state-start")
         const cfg = yield* config.get()
+        StartupTiming.mark("agent:config")
         const skillDirs = yield* skill.dirs()
+        StartupTiming.mark("agent:skill-dirs")
         const referenceDirs = Object.keys(cfg.references ?? cfg.reference ?? {}).length
           ? yield* Effect.gen(function* () {
               yield* (yield* PluginV2.Service).wait(PluginV2.ID.make("core/config-reference"))
               return (yield* (yield* Reference.Service).list()).map((reference) => reference.path)
             }).pipe(Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(ctx.directory) }))))
           : []
+        StartupTiming.mark("agent:reference-dirs")
         const whitelistedDirs = [
           Truncate.GLOB,
           path.join(Global.Path.tmp, "*"),
@@ -343,6 +348,7 @@ const layer = Layer.effect(
           return (yield* defaultInfo()).name
         })
 
+        StartupTiming.mark("agent:state-done")
         return {
           get,
           list,

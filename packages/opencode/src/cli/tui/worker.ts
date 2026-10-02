@@ -10,7 +10,9 @@ import { Heap } from "@/cli/heap"
 import { AppRuntime } from "@/effect/app-runtime"
 import { Effect } from "effect"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
+import { StartupTiming } from "@opencode-ai/core/util/startup"
 
+StartupTiming.mark("worker:imports")
 Heap.start()
 
 const onUnhandledRejection = (_error: unknown) => {}
@@ -26,9 +28,11 @@ GlobalBus.on("event", (event) => {
 })
 
 let server: Awaited<ReturnType<typeof Server.listen>> | undefined
+let fetched = false
 
 export const rpc = {
   async fetch(input: { url: string; method: string; headers: Record<string, string>; body?: string }) {
+    if (!fetched) StartupTiming.mark("worker:first-fetch")
     const headers = { ...input.headers }
     const auth = ServerAuth.header()
     if (auth && !headers["authorization"] && !headers["Authorization"]) {
@@ -39,8 +43,14 @@ export const rpc = {
       headers,
       body: input.body,
     })
+    const began = Date.now()
     const response = await Server.Default().app.fetch(request)
+    if (!fetched) {
+      fetched = true
+      StartupTiming.mark("worker:first-response")
+    }
     const body = await response.text()
+    StartupTiming.mark(`worker:fetch ${new URL(input.url).pathname} ${Date.now() - began}ms`)
     return {
       status: response.status,
       headers: Object.fromEntries(response.headers.entries()),
