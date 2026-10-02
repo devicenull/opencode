@@ -449,6 +449,25 @@ export const {
     const exit = useExit()
     const args = useArgs()
 
+    // The full provider catalog is multi-MB and slow to serialize server-side, and
+    // only the connect-provider dialog reads it. Load it lazily on first demand
+    // instead of blocking bootstrap.
+    const providerListState = { request: undefined as Promise<void> | undefined, fetched: false }
+    function ensureProviderList(force = false) {
+      if (providerListState.request) return providerListState.request
+      if (providerListState.fetched && !force) return Promise.resolve()
+      providerListState.request = sdk.client.provider
+        .list({ workspace: project.workspace.current() }, { throwOnError: true })
+        .then((x) => {
+          providerListState.fetched = true
+          setStore("provider_next", reconcile(x.data!))
+        })
+        .finally(() => {
+          providerListState.request = undefined
+        })
+      return providerListState.request
+    }
+
     async function bootstrap(input: { fatal?: boolean } = {}) {
       StartupTiming.mark("tui:bootstrap-start")
       const fatal = input.fatal ?? true
@@ -458,7 +477,6 @@ export const {
 
       // blocking - include session.list when continuing a session
       const providersPromise = sdk.client.config.providers({ workspace }, { throwOnError: true })
-      const providerListPromise = sdk.client.provider.list({ workspace }, { throwOnError: true })
       const capabilitiesPromise = sdk.client.experimental.capabilities
         .get({ workspace }, { throwOnError: true })
         .then((x) => x.data)
@@ -471,7 +489,6 @@ export const {
       const configPromise = sdk.client.config.get({ workspace }, { throwOnError: true })
       await Promise.all([
         providersPromise,
-        providerListPromise,
         capabilitiesPromise,
         agentsPromise,
         configPromise,
@@ -480,7 +497,6 @@ export const {
       ])
         .then(async () => {
           const providersResponse = providersPromise.then((x) => x.data!)
-          const providerListResponse = providerListPromise.then((x) => x.data!)
           const capabilitiesResponse = capabilitiesPromise
           const consoleStateResponse = consoleStatePromise
           const agentsResponse = agentsPromise.then((x) => x.data ?? [])
@@ -489,7 +505,6 @@ export const {
 
           return Promise.all([
             providersResponse,
-            providerListResponse,
             capabilitiesResponse,
             consoleStateResponse,
             agentsResponse,
@@ -497,17 +512,15 @@ export const {
             ...(sessionListResponse ? [sessionListResponse] : []),
           ]).then((responses) => {
             const providers = responses[0]
-            const providerList = responses[1]
-            const capabilities = responses[2]
-            const consoleState = responses[3]
-            const agents = responses[4]
-            const config = responses[5]
-            const sessions = responses[6]
+            const capabilities = responses[1]
+            const consoleState = responses[2]
+            const agents = responses[3]
+            const config = responses[4]
+            const sessions = responses[5]
 
             batch(() => {
               setStore("provider", reconcile(providers.providers))
               setStore("provider_default", reconcile(providers.default))
-              setStore("provider_next", reconcile(providerList))
               setStore("capabilities", "experimentalBackgroundSubagents", capabilities?.backgroundSubagents === true)
               setStore("console_state", reconcile(consoleState))
               setStore("agent", reconcile(agents))
@@ -522,6 +535,9 @@ export const {
           // non-blocking
           void Promise.all([
             ...(args.continue ? [] : [sessionListPromise.then((sessions) => setStore("session", reconcile(sessions)))]),
+            // Refresh the lazily-loaded provider catalog only if something already
+            // asked for it (e.g. after connecting a provider); never fetch on boot.
+            ...(providerListState.fetched ? [ensureProviderList(true).catch(() => {})] : []),
             consoleStatePromise.then((consoleState) => setStore("console_state", reconcile(consoleState))),
             sdk.client.command.list({ workspace }).then((x) => setStore("command", reconcile(x.data ?? []))),
             sdk.client.lsp.status({ workspace }).then((x) => setStore("lsp", reconcile(x.data ?? []))),
@@ -671,6 +687,7 @@ export const {
         },
       },
       bootstrap,
+      ensureProviderList,
     }
     return result
   },
