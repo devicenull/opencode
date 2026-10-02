@@ -1460,7 +1460,12 @@ const layer = Layer.effect(
         const modelsDev = yield* modelsDevSvc.get()
         StartupTiming.mark("provider:models-dev")
         const catalog = mapValues(modelsDev, fromModelsDevProvider)
-        const database = mapValues(catalog, toPublicInfo)
+        // Private working copy of the catalog. structuredClone replaces the previous
+        // toPublicInfo deep copy, which spent ~700ms schema-validating and JSON
+        // round-tripping 8k+ models that fromModelsDevProvider already emits as
+        // plain, valid data. Config/plugin-sourced providers still sanitize via
+        // toPublicInfo at the route and hook boundaries.
+        const database = structuredClone(catalog)
         // Pristine public catalog for the /provider list endpoint; the config and
         // plugin loops below patch `database`, so snapshot before they run. Mutation
         // sites must replace entries, not edit them in place, to keep this valid.
