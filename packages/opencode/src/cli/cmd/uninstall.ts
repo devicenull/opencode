@@ -8,6 +8,7 @@ import path from "path"
 import os from "os"
 import { Filesystem } from "@/util/filesystem"
 import { Process } from "@/util/process"
+import { cmd } from "./cmd"
 
 interface UninstallArgs {
   keepConfig: boolean
@@ -22,7 +23,7 @@ interface RemovalTargets {
   binary: string | null
 }
 
-export const UninstallCommand = {
+export const UninstallCommand = cmd({
   command: "uninstall",
   describe: "uninstall opencode and remove all related files",
   builder: (yargs: Argv) =>
@@ -85,7 +86,7 @@ export const UninstallCommand = {
 
     prompts.outro("Done")
   },
-}
+})
 
 async function collectRemovalTargets(args: UninstallArgs, method: Installation.Method): Promise<RemovalTargets> {
   const directories: RemovalTargets["directories"] = [
