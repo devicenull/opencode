@@ -190,7 +190,6 @@ export const TuiThreadCommand = cmd({
 
     const unguard = win32InstallCtrlCGuard()
     try {
-      const { TuiConfig } = await import("@/config/tui")
       if (args.fork && !args.continue && !args.session) {
         UI.error("--fork requires --continue or --session")
         process.exitCode = 1
@@ -208,6 +207,11 @@ export const TuiThreadCommand = cmd({
         return
       }
       const cwd = Filesystem.resolve(process.cwd())
+
+      // Start the config module load without awaiting: its evaluation costs
+      // ~600ms in the compiled binary, and the worker boot below (~1.2s of
+      // module evaluation on the worker thread) does not depend on it.
+      const tuiConfigModule = import("@/config/tui")
 
       const worker = new Worker(file, {
         env: Object.fromEntries(
@@ -231,6 +235,7 @@ export const TuiThreadCommand = cmd({
       }
 
       const prompt = await input(args.prompt)
+      const { TuiConfig } = await tuiConfigModule
       const config = await TuiConfig.get()
       StartupTiming.mark("tui:config")
 
