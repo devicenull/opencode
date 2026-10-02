@@ -1454,7 +1454,12 @@ const layer = Layer.effect(
         const cfg = yield* config.get()
         const modelsDev = yield* modelsDevSvc.get()
         const catalog = mapValues(modelsDev, fromModelsDevProvider)
-        const database = mapValues(catalog, toPublicInfo)
+        // Private working copy of the catalog. structuredClone replaces the previous
+        // toPublicInfo deep copy, which spent ~700ms schema-validating and JSON
+        // round-tripping 8k+ models that fromModelsDevProvider already emits as
+        // plain, valid data. Config/plugin-sourced providers still sanitize via
+        // toPublicInfo at the route and hook boundaries.
+        const database = structuredClone(catalog)
 
         const providers: Record<ProviderV2.ID, Info> = {} as Record<ProviderV2.ID, Info>
         const languages = new Map<string, LanguageModelV3>()
