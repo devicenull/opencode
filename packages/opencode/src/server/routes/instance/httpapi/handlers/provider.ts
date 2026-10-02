@@ -1,6 +1,5 @@
 import { ProviderAuth } from "@/provider/auth"
 import { Config } from "@/config/config"
-import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { Provider } from "@/provider/provider"
 import { Auth } from "@/auth"
 
@@ -41,21 +40,20 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
 
     const list = Effect.fn("ProviderHttpApi.list")(function* () {
       const config = yield* cfg.get()
-      const all = yield* ModelsDev.Service.use((s) => s.get())
+      // Pre-mapped public catalog from provider state; re-deriving it here costs
+      // ~700ms of schema validation per call.
+      const all = yield* provider.listCatalog()
       const disabled = new Set(config.disabled_providers ?? [])
       const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
-      const filtered: Record<string, (typeof all)[string]> = {}
-      for (const [key, value] of Object.entries(all)) {
-        if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) filtered[key] = value
-      }
       const connected = yield* provider.list()
       const credentials = yield* authStore.all().pipe(Effect.orDie)
-      const providers = Object.assign(
-        mapValues(filtered, (item) => Provider.fromModelsDevProvider(item)),
-        connected,
-      )
+      const providers: Record<string, Provider.Info> = {}
+      for (const [key, value] of Object.entries(all)) {
+        if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) providers[key] = value
+      }
+      Object.assign(providers, mapValues(connected, (item) => Provider.toPublicInfo(item)))
       return {
-        all: Object.values(providers).map(Provider.toPublicInfo),
+        all: Object.values(providers),
         default: Provider.defaultModelIDs(providers),
         connected: Object.keys(providers).filter((id) => id in connected || credentials[id]),
       }
