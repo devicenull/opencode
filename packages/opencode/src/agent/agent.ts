@@ -24,13 +24,11 @@ import { Effect, Context, Layer, Schema } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import * as Option from "effect/Option"
 import * as OtelTracer from "@effect/opentelemetry/Tracer"
-import { AbsolutePath, type DeepMutable } from "@opencode-ai/core/schema"
+import { type DeepMutable } from "@opencode-ai/core/schema"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
-import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/location-services"
-import { Reference } from "@opencode-ai/core/reference"
-import { Location } from "@opencode-ai/core/location"
-import { PluginV2 } from "@opencode-ai/core/plugin"
+import { Repository } from "@opencode-ai/core/repository"
+import { ConfigReference } from "@opencode-ai/core/config/reference"
 
 export const Info = Schema.Struct({
   name: Schema.String,
@@ -93,18 +91,12 @@ const layer = Layer.effect(
     const plugin = yield* Plugin.Service
     const skill = yield* Skill.Service
     const provider = yield* Provider.Service
-    const locations = yield* LocationServiceMap.Service
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("Agent.state")(function* (ctx) {
         const cfg = yield* config.get()
         const skillDirs = yield* skill.dirs()
-        const referenceDirs = Object.keys(cfg.references ?? cfg.reference ?? {}).length
-          ? yield* Effect.gen(function* () {
-              yield* (yield* PluginV2.Service).wait(PluginV2.ID.make("core/config-reference"))
-              return (yield* (yield* Reference.Service).list()).map((reference) => reference.path)
-            }).pipe(Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(ctx.directory) }))))
-          : []
+        const referenceDirs = referencePaths(cfg, ctx.directory)
         const whitelistedDirs = [
           Truncate.GLOB,
           path.join(Global.Path.tmp, "*"),
@@ -438,16 +430,46 @@ const layer = Layer.effect(
   }),
 )
 
-const locationServiceMapNode = LayerNode.make({
-  service: LocationServiceMap.Service,
-  layer: locationServiceMapLayer,
-  deps: [],
-})
-
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [Config.node, Auth.node, Plugin.node, Skill.node, Provider.node, locationServiceMapNode],
+  deps: [Config.node, Auth.node, Plugin.node, Skill.node, Provider.node],
 })
+
+// Mirror ConfigReferencePlugin + Reference materialization synchronously: resolving
+// this through the location service graph costs seconds at startup.
+// ponytail: relative local paths resolve against the instance directory, not the
+// directory of the config file that declared them; revisit if that ever matters.
+export function referencePaths(
+  cfg: { references?: ConfigReference.Info; reference?: ConfigReference.Info },
+  directory: string,
+) {
+  return Object.values(cfg.references ?? cfg.reference ?? {}).flatMap((entry) => {
+    if (isLocalEntry(entry)) return [localPath(directory, typeof entry === "string" ? entry : entry.path)]
+    const source = typeof entry === "string" ? entry : entry.repository
+    const branch = typeof entry === "string" ? undefined : entry.branch
+    const repository = Repository.parse(source)
+    if (!repository || !Repository.isRemote(repository)) return []
+    if (branch) {
+      try {
+        Repository.validateBranch(branch)
+      } catch {
+        return []
+      }
+    }
+    return [Repository.cachePath(Global.Path.repos, repository, branch)]
+  })
+}
+
+function isLocalEntry(entry: ConfigReference.Entry): entry is string | ConfigReference.Local {
+  return typeof entry === "string"
+    ? entry.startsWith(".") || entry.startsWith("/") || entry.startsWith("~")
+    : "path" in entry
+}
+
+function localPath(directory: string, value: string) {
+  if (value.startsWith("~/")) return path.join(Global.Path.home, value.slice(2))
+  return path.isAbsolute(value) ? value : path.resolve(directory, value)
+}
 
 export * as Agent from "./agent"
